@@ -6,6 +6,45 @@
 Prometheus exporter for Redis metrics.\
 Supports Redis 2.x, 3.x, 4.x, 5.x, and 6.x
 
+## 增加功能
+
+主要是为了解决一个exporter，多个redis target，并且每一个target都带有不同的密码的场景
+
+1. 支持可以从配置文件中加载
+2. 也支持从携程的配置管理中心apollo中加载
+配置文件的例子
+```json
+{
+  "redis://a.abc.com:6385": "password",
+  "redis://a.abc.com:6378": "",
+  "redis://a.abc.com:6379": ""
+}
+```
+
+当通过http请求时，会根据target到配置文件中匹配到密码，进行请求；
+http://localhost:9121/scrape?target=redis://a.abc.com:6385
+
+在prometheus中配置文件
+```text
+  ## config for the multiple Redis targets that the exporter will scrape
+  - job_name: 'redis_exporter_targets'
+    metrics_path: /scrape
+    scrape_interval: '15s'
+    scrape_timeout: '15s'
+    scheme: 'http'
+    static_configs:
+      - targets:
+          - redis://a.abc.com:6385
+          - redis://a.abc.com:6378
+          - redis://a.abc.com:6379
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 127.0.0.1:9121
+```
 
 ## Building and running the exporter
 
