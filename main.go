@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"flag"
 	"io/ioutil"
 	"net/http"
@@ -41,11 +42,31 @@ func getEnvBool(key string, defaultVal bool) bool {
 	return defaultVal
 }
 
+func readJsonFromFile(f string) (map[string]string, error) {
+	b, err := ioutil.ReadFile(f)
+	if err != nil {
+		return nil, err
+	}
+
+	var d map[string]string
+
+	if err := json.Unmarshal(b, &d); err != nil {
+		return nil, err
+	}
+
+	return d, nil
+}
+
 func main() {
 	var (
 		redisAddr           = flag.String("redis.addr", getEnv("REDIS_ADDR", "redis://localhost:6379"), "Address of the Redis instance to scrape")
 		redisUser           = flag.String("redis.user", getEnv("REDIS_USER", ""), "User name to use for authentication (Redis ACL for Redis 6.0 and newer)")
 		redisPwd            = flag.String("redis.password", getEnv("REDIS_PASSWORD", ""), "Password of the Redis instance to scrape")
+		redisPwdFile        = flag.String("redis.password-file", getEnv("REDIS_PASSWORD_FILE", ""), "Password file of the All Redis instance to scrape")
+		apolloConfigServer  = flag.String("apollo-config-server", getEnv("APOLLO_CONFIG_SERVER", ""), "apollo config server")
+		apolloId            = flag.String("apollo-id", getEnv("APP_ID", ""), "apollo id")
+		apolloCluster       = flag.String("apollo-cluster", getEnv("APOLLO_CLUSTER", ""), "apollo cluster")
+		apolloNSConfig      = flag.String("apollo-ns-config", getEnv("APOLLO_NS_CONFIG", ""), "apollo namespace config")
 		namespace           = flag.String("namespace", getEnv("REDIS_EXPORTER_NAMESPACE", "redis"), "Namespace for metrics")
 		checkKeys           = flag.String("check-keys", getEnv("REDIS_EXPORTER_CHECK_KEYS", ""), "Comma separated list of key-patterns to export value and length/size, searched for with SCAN")
 		checkSingleKeys     = flag.String("check-single-keys", getEnv("REDIS_EXPORTER_CHECK_SINGLE_KEYS", ""), "Comma separated list of single keys to export value and length/size")
@@ -129,6 +150,15 @@ func main() {
 		}
 	}
 
+	// 支持通过配置文件的方式直接加载
+	var redisJson map[string]string
+	if *redisPwdFile != "" {
+		log.Info("starting load json from file")
+		if redisJson, err = readJsonFromFile(*redisPwdFile); err != nil {
+			log.Fatalf("Unmarshal json file %s    err: %s", *redisPwdFile, err)
+		}
+	}
+
 	registry := prometheus.NewRegistry()
 	if !*redisMetricsOnly {
 		registry = prometheus.DefaultRegisterer.(*prometheus.Registry)
@@ -139,6 +169,7 @@ func main() {
 		Options{
 			User:                *redisUser,
 			Password:            *redisPwd,
+			PasswordMap:         redisJson,
 			Namespace:           *namespace,
 			ConfigCommandName:   *configCommand,
 			CheckKeys:           *checkKeys,
@@ -160,6 +191,14 @@ func main() {
 	)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	// 支持通过apollo的方式加载
+	if *apolloConfigServer != "" && *apolloCluster != "" && *apolloId != "" && *apolloNSConfig != "" {
+		log.Info("starting load apollo info")
+		if err := parseApollo(*apolloConfigServer, *apolloCluster, *apolloId, *apolloNSConfig, exp.Reload); err != nil {
+			log.Fatalf("err %s", err)
+		}
 	}
 
 	log.Infof("Providing metrics at %s%s", *listenAddress, *metricPath)

@@ -53,6 +53,7 @@ type Exporter struct {
 type Options struct {
 	User                string
 	Password            string
+	PasswordMap         map[string]string
 	Namespace           string
 	ConfigCommandName   string
 	CheckSingleKeys     string
@@ -96,6 +97,10 @@ func (e *Exporter) scrapeHandler(w http.ResponseWriter, r *http.Request) {
 	target = u.String()
 
 	opts := e.options
+
+	if e.options.PasswordMap != nil {
+		opts.Password = e.options.PasswordMap[target]
+	}
 
 	if ck := r.URL.Query().Get("check-keys"); ck != "" {
 		opts.CheckKeys = ck
@@ -427,6 +432,16 @@ func NewRedisExporter(redisURI string, opts Options) (*Exporter, error) {
 	})
 
 	return e, nil
+}
+
+func (e *Exporter) Reload(p map[string]string) error {
+
+	if p == nil {
+		return nil
+	}
+
+	e.options.PasswordMap = p
+	return nil
 }
 
 func (e *Exporter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
